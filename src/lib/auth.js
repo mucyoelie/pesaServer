@@ -93,8 +93,12 @@ export function readSessionToken(req) {
 }
 
 function cookieAttributes() {
-  const attributes = ['Path=/', 'HttpOnly', 'SameSite=Lax'];
-  if (process.env.NODE_ENV === 'production') attributes.push('Secure');
+  const attributes = ['Path=/', 'HttpOnly'];
+  if (process.env.NODE_ENV === 'production') {
+    attributes.push('SameSite=None', 'Secure');
+  } else {
+    attributes.push('SameSite=Lax');
+  }
   return attributes;
 }
 
