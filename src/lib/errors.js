@@ -26,5 +26,8 @@ export function translateSqliteError(error) {
   if (/budgets/i.test(error.message)) {
     return conflict('A budget for that category and month already exists.');
   }
+  if (/transfers/i.test(error.message)) {
+    return conflict('This transfer was already processed.');
+  }
   return new ApiError(409, 'That record conflicts with an existing one.');
 }

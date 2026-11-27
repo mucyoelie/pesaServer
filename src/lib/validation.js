@@ -85,6 +85,20 @@ export const transactionBody = z.object({
 export const createTransactionSchema = transactionBody;
 export const updateTransactionSchema = transactionBody.partial();
 
+/** Body for POST /api/transfers. `reference` is the idempotency key. */
+export const createTransferSchema = z
+  .object({
+    from_account_id: z.number().int().positive('Pick the account to take money from'),
+    to_account_id: z.number().int().positive('Pick the account to send money to'),
+    amount_cents: z.number().int().positive('Amount must be greater than zero').max(1e12),
+    reference: z.string().trim().min(8, 'Reference is too short').max(80),
+    note: z.string().trim().max(160).default(''),
+  })
+  .refine((body) => body.from_account_id !== body.to_account_id, {
+    message: 'Choose two different accounts',
+    path: ['to_account_id'],
+  });
+
 export const accountQuerySchema = z.object({
   asOf: isoDate.optional(),
 });

@@ -105,8 +105,8 @@ router.get('/', (req, res) => {
   const aggregates = db
     .prepare(
       `SELECT COUNT(*) AS total,
-              COALESCE(SUM(CASE WHEN t.type = 'income'  THEN t.amount_cents END), 0) AS income_cents,
-              COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount_cents END), 0) AS expense_cents
+              COALESCE(SUM(CASE WHEN t.type = 'income'  AND t.is_transfer = 0 THEN t.amount_cents END), 0) AS income_cents,
+              COALESCE(SUM(CASE WHEN t.type = 'expense' AND t.is_transfer = 0 THEN t.amount_cents END), 0) AS expense_cents
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
        LEFT JOIN categories c ON c.id = t.category_id

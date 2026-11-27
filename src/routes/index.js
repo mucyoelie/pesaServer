@@ -6,6 +6,7 @@ import budgetsRouter from './budgets.js';
 import categoriesRouter from './categories.js';
 import reportsRouter from './reports.js';
 import transactionsRouter from './transactions.js';
+import transfersRouter from './transfers.js';
 
 const router = Router();
 
@@ -22,6 +23,7 @@ router.use(requireAuth);
 router.use('/accounts', accountsRouter);
 router.use('/categories', categoriesRouter);
 router.use('/transactions', transactionsRouter);
+router.use('/transfers', transfersRouter);
 router.use('/budgets', budgetsRouter);
 router.use('/', reportsRouter);
 

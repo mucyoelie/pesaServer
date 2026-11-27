@@ -17,11 +17,11 @@ export function totals(userId, from, to) {
   const row = db
     .prepare(
       `SELECT
-         COALESCE(SUM(CASE WHEN type = 'income'  THEN amount_cents END), 0) AS income_cents,
-         COALESCE(SUM(CASE WHEN type = 'expense' THEN amount_cents END), 0) AS expense_cents,
-         COALESCE(SUM(CASE WHEN type = 'income'  THEN 1 ELSE 0 END), 0) AS income_count,
-         COALESCE(SUM(CASE WHEN type = 'expense' THEN 1 ELSE 0 END), 0) AS expense_count,
-         COUNT(*) AS transaction_count
+         COALESCE(SUM(CASE WHEN type = 'income'  AND is_transfer = 0 THEN amount_cents END), 0) AS income_cents,
+         COALESCE(SUM(CASE WHEN type = 'expense' AND is_transfer = 0 THEN amount_cents END), 0) AS expense_cents,
+         COALESCE(SUM(CASE WHEN type = 'income'  AND is_transfer = 0 THEN 1 ELSE 0 END), 0) AS income_count,
+         COALESCE(SUM(CASE WHEN type = 'expense' AND is_transfer = 0 THEN 1 ELSE 0 END), 0) AS expense_count,
+         COALESCE(SUM(CASE WHEN is_transfer = 0 THEN 1 ELSE 0 END), 0) AS transaction_count
        FROM transactions
        WHERE user_id = @userId AND date BETWEEN @from AND @to`,
     )
@@ -59,8 +59,8 @@ export function accountBalances(userId, asOf = '9999-12-31') {
               a.opening_balance_cents
                 + COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount_cents ELSE -t.amount_cents END), 0)
                 AS balance_cents,
-              COALESCE(SUM(CASE WHEN t.type = 'income'  THEN t.amount_cents END), 0) AS income_cents,
-              COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount_cents END), 0) AS expense_cents,
+              COALESCE(SUM(CASE WHEN t.type = 'income'  AND t.is_transfer = 0 THEN t.amount_cents END), 0) AS income_cents,
+              COALESCE(SUM(CASE WHEN t.type = 'expense' AND t.is_transfer = 0 THEN t.amount_cents END), 0) AS expense_cents,
               COUNT(t.id) AS transaction_count
        FROM accounts a
        LEFT JOIN transactions t ON t.account_id = a.id AND t.date <= @asOf
@@ -79,10 +79,10 @@ export function monthlySeries(userId, from, to) {
   const rows = db
     .prepare(
       `SELECT substr(date, 1, 7) AS period,
-              COALESCE(SUM(CASE WHEN type = 'income'  THEN amount_cents END), 0) AS income_cents,
-              COALESCE(SUM(CASE WHEN type = 'expense' THEN amount_cents END), 0) AS expense_cents
+              COALESCE(SUM(CASE WHEN type = 'income'  AND is_transfer = 0 THEN amount_cents END), 0) AS income_cents,
+              COALESCE(SUM(CASE WHEN type = 'expense' AND is_transfer = 0 THEN amount_cents END), 0) AS expense_cents
        FROM transactions
-       WHERE user_id = @userId AND date BETWEEN @from AND @to
+       WHERE user_id = @userId AND is_transfer = 0 AND date BETWEEN @from AND @to
        GROUP BY period
        ORDER BY period`,
     )
@@ -138,7 +138,7 @@ export function expenseTree(userId, from, to) {
       `SELECT COALESCE(SUM(amount_cents), 0) AS total_cents, COUNT(*) AS transaction_count
        FROM transactions
        WHERE user_id = @userId AND type = 'expense' AND category_id IS NULL
-         AND date BETWEEN @from AND @to`,
+         AND is_transfer = 0 AND date BETWEEN @from AND @to`,
     )
     .get({ userId, from, to });
 
@@ -165,7 +165,7 @@ export function incomeTree(userId, from, to) {
       `SELECT COALESCE(SUM(amount_cents), 0) AS total_cents, COUNT(*) AS transaction_count
        FROM transactions
        WHERE user_id = @userId AND type = 'income' AND category_id IS NULL
-         AND date BETWEEN @from AND @to`,
+         AND is_transfer = 0 AND date BETWEEN @from AND @to`,
     )
     .get({ userId, from, to });
 
@@ -181,8 +181,10 @@ export function accountActivity(userId, from, to) {
                 + COALESCE(SUM(CASE WHEN t.date < @from THEN
                     CASE WHEN t.type = 'income' THEN t.amount_cents ELSE -t.amount_cents END END), 0)
                 AS opening_balance_range_cents,
-              COALESCE(SUM(CASE WHEN t.date BETWEEN @from AND @to AND t.type = 'income'  THEN t.amount_cents END), 0) AS income_cents,
-              COALESCE(SUM(CASE WHEN t.date BETWEEN @from AND @to AND t.type = 'expense' THEN t.amount_cents END), 0) AS expense_cents
+              COALESCE(SUM(CASE WHEN t.date BETWEEN @from AND @to AND t.type = 'income'  AND t.is_transfer = 0 THEN t.amount_cents END), 0) AS income_cents,
+              COALESCE(SUM(CASE WHEN t.date BETWEEN @from AND @to AND t.type = 'expense' AND t.is_transfer = 0 THEN t.amount_cents END), 0) AS expense_cents,
+              COALESCE(SUM(CASE WHEN t.date BETWEEN @from AND @to AND t.is_transfer = 1 THEN
+                CASE WHEN t.type = 'income' THEN t.amount_cents ELSE -t.amount_cents END END), 0) AS transfer_net_cents
        FROM accounts a
        LEFT JOIN transactions t ON t.account_id = a.id AND t.date <= @to
        WHERE a.user_id = @userId
@@ -193,7 +195,8 @@ export function accountActivity(userId, from, to) {
     .map((row) => ({
       ...row,
       net_cents: row.income_cents - row.expense_cents,
-      closing_balance_cents: row.opening_balance_range_cents + row.income_cents - row.expense_cents,
+      closing_balance_cents:
+        row.opening_balance_range_cents + row.income_cents - row.expense_cents + row.transfer_net_cents,
     }));
 }
 
@@ -257,7 +260,8 @@ export function topExpenses(userId, from, to, limit = 5) {
   return db
     .prepare(
       `${TRANSACTION_SELECT}
-       WHERE t.user_id = @userId AND t.type = 'expense' AND t.date BETWEEN @from AND @to
+       WHERE t.user_id = @userId AND t.type = 'expense' AND t.is_transfer = 0
+         AND t.date BETWEEN @from AND @to
        ORDER BY t.amount_cents DESC LIMIT @limit`,
     )
     .all({ userId, from, to, limit });

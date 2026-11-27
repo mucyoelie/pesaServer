@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS transactions (
   amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
   description  TEXT    NOT NULL DEFAULT '',
   date         TEXT    NOT NULL,
+  -- 1 when this row is one side of a transfer. It still changes the account
+  -- balance, but reports skip it so moving money is not counted as income or spending.
+  is_transfer  INTEGER NOT NULL DEFAULT 0 CHECK (is_transfer IN (0, 1)),
   created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -74,6 +77,23 @@ CREATE TABLE IF NOT EXISTS budgets (
   amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
   created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+-- One row per money move between two accounts owned by the same user.
+-- `reference` is the idempotency key: the same key cannot be saved twice.
+CREATE TABLE IF NOT EXISTS transfers (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  from_account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  to_account_id   INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  amount_cents    INTEGER NOT NULL CHECK (amount_cents > 0),
+  reference       TEXT    NOT NULL,
+  note            TEXT    NOT NULL DEFAULT '',
+  created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+  CHECK (from_account_id != to_account_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transfers_reference ON transfers (user_id, reference);
+CREATE INDEX IF NOT EXISTS idx_transfers_user ON transfers (user_id, id);
 
 -- Per user indexes and per user unique constraints are created by migrate() in
 -- db/index.js, which also upgrades databases created before authentication existed.

@@ -21,8 +21,10 @@ export const db = new Database(DB_PATH);
 // ON DELETE rules in the schema actually fire (SQLite has them off by default).
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+// Wait briefly if another request is already writing, instead of failing at once.
+db.pragma('busy_timeout = 5000');
 
-const OWNED_TABLES = ['accounts', 'categories', 'transactions', 'budgets'];
+const OWNED_TABLES = ['accounts', 'categories', 'transactions', 'budgets', 'transfers'];
 
 function columnNames(table) {
   return db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name);
@@ -55,11 +57,19 @@ function ensureOwnershipColumns() {
   );
 }
 
+/** Older databases were created before transfers were marked on the ledger. */
+function ensureTransferColumn() {
+  if (!columnNames('transactions').includes('is_transfer')) {
+    db.exec('ALTER TABLE transactions ADD COLUMN is_transfer INTEGER NOT NULL DEFAULT 0');
+  }
+}
+
 /** Apply the schema and ownership upgrades. Safe to call on every boot. */
 export function migrate() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   db.exec(schema);
   ensureOwnershipColumns();
+  ensureTransferColumn();
 }
 
 /** Give rows created before authentication existed to `userId`. */
